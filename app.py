@@ -587,7 +587,6 @@ elif page == "Fertilizer Advisor":
     st.markdown("Input your soil and environment conditions to get a fertilizer recommendation.")
 
     # --- 1. CALL THE MODEL BUILDER ---
-    # Model pipe, accuracy, trained features, and classes are returned from the function in Part 1
     model_pipe, accuracy, trained_features, fertilizer_classes = build_fertilizer_model()
 
     # Get unique categorical options for Streamlit selectboxes
@@ -595,22 +594,21 @@ elif page == "Fertilizer Advisor":
     
     if df_fert.empty or model_pipe is None:
         st.error("🚨 CRITICAL ERROR: Fertilizer data is missing or corrupted. Model cannot run.")
-        return # Stop execution if data is missing
+        st.stop() # <-- CORRECT FIX for SyntaxError
     
     soil_types = sorted(df_fert['Soil Type'].unique().tolist())
     crop_types = sorted(df_fert['Crop Type'].unique().tolist())
 
-    # --- 2. SELECTION WIDGETS (Moved outside the form for dynamic filtering) ---
+    # --- 2. SELECTION WIDGETS (Outside the form for dynamic filtering) ---
     st.subheader("Select Crop and Soil Type")
     colA, colB = st.columns(2)
     
     with colA:
-        # These values are now constantly available for filtering the preview
         soil_type_selected = st.selectbox("Soil Type", options=soil_types, key="preview_soil")
     with colB:
         crop_type_selected = st.selectbox("Crop Type", options=crop_types, key="preview_crop")
 
-    # --- 3. DYNAMIC DATA PREVIEW (The fix for your requirement) ---
+    # --- 3. DYNAMIC DATA PREVIEW ---
     with st.expander(f"📊 View Data for **{crop_type_selected}** on **{soil_type_selected}**"):
         
         # Filter the full DataFrame based on the user's current selections
@@ -620,7 +618,6 @@ elif page == "Fertilizer Advisor":
         ]
         
         if not df_filtered.empty:
-            # Display only the relevant columns and the filtered data
             st.write(f"Showing **{len(df_filtered)}** records matching your criteria:")
             df_display = df_filtered[['Nitrogen', 'Phosphorus', 'Potassium', 'Temperature', 'Humidity', 'Soil Moisture', 'Fertilizer Name']]
             st.dataframe(df_display, use_container_width=True)
@@ -632,7 +629,7 @@ elif page == "Fertilizer Advisor":
     st.markdown("---")
 
 
-    # --- 4. NUMERIC INPUT FORM (The NPK/Weather inputs remain in the form) ---
+    # --- 4. NUMERIC INPUT FORM ---
     with st.form("fert_advisor_form"):
         st.subheader("Enter Current Conditions")
         col1, col2 = st.columns(2)
@@ -650,11 +647,11 @@ elif page == "Fertilizer Advisor":
         submitted = st.form_submit_button("Get Recommendation")
 
         if submitted:
-            # 5. GATHER USER INPUTS INTO A DICT (Using the values from the top selectboxes)
+            # 5. GATHER USER INPUTS
             user_input = {
                 "Temperature": temp, "Humidity": hum, "Soil Moisture": moisture,
-                "Soil Type": soil_type_selected, # Use the value from the top selectbox
-                "Crop Type": crop_type_selected, # Use the value from the top selectbox
+                "Soil Type": soil_type_selected, 
+                "Crop Type": crop_type_selected, 
                 "Nitrogen": n, "Potassium": k, "Phosphorus": p
             }
 
@@ -673,4 +670,3 @@ elif page == "Fertilizer Advisor":
                     st.write(f"🥈 {name} (Confidence: {prob:.2%})")
                 elif i == 2:
                     st.write(f"🥉 {name} (Confidence: {prob:.2%})")
-
