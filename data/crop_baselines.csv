@@ -1,0 +1,4 @@
+Crop,Moisture_min,Moisture_max,Temp_min,Temp_max,Rain_min,Rain_max,Growth_target
+Wheat,35,55,12,25,20,60,70
+Rice,60,80,20,35,40,120,75
+Maize,45,65,18,30,30,90,65
