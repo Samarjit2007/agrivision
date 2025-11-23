@@ -508,100 +508,137 @@ elif page == "Settings":
 elif page == "Fertilizer Advisor":
     st.title("🧪 Fertilizer Advisor")
 
-    # Build model
-    model, acc = build_fertilizer_model()
-    if model is None:
-        st.error("Missing or invalid Fertilizer Prediction.csv in data/.")
-        st.stop()
+    try:
+        # Build model (The crash is likely occurring here inside this cached function)
+        model, acc = build_fertilizer_model()
+        
+        if model is None:
+            st.error("Missing or invalid Fertilizer Prediction.csv in data/.")
+            st.stop()
 
-    st.caption(f"Model trained • Test accuracy: {acc:.2f}")
+        st.caption(f"Model trained • Test accuracy: {acc:.2f}")
 
-    # Load Fertilizer dataset
-    fert_df = load_fert_dataset()
-    soil_types = sorted(fert_df["Soil Type"].dropna().unique().tolist()) if "Soil Type" in fert_df.columns else []
-    crop_types = sorted(fert_df["Crop Type"].dropna().unique().tolist()) if "Crop Type" in fert_df.columns else []
+        # Load Fertilizer dataset
+        fert_df = load_fert_dataset()
+        soil_types = sorted(fert_df["Soil Type"].dropna().unique().tolist()) if "Soil Type" in fert_df.columns else []
+        crop_types = sorted(fert_df["Crop Type"].dropna().unique().tolist()) if "Crop Type" in fert_df.columns else []
 
-    # 🚨 Restrict crop selection strictly to Fertilizer dataset
-    crop = st.selectbox("Crop type (from Fertilizer dataset)", crop_types,
-                        help="Select the crop you are growing. Only crops available in the Fertilizer dataset are listed.")
-    soil = st.selectbox("Soil type (from Fertilizer dataset)", soil_types,
-                        help="Choose the soil type that matches your field conditions.")
+        # 🚨 Restrict crop selection strictly to Fertilizer dataset
+        crop = st.selectbox("Crop type (from Fertilizer dataset)", crop_types,
+                            help="Select the crop you are growing. Only crops available in the Fertilizer dataset are listed.")
+        soil = st.selectbox("Soil type (from Fertilizer dataset)", soil_types,
+                            help="Choose the soil type that matches your field conditions.")
 
-    # Prefill from last entry if available
-    df_user = load_csv_dynamic(DATA_FILE)
-    last = df_user.tail(1).iloc[0] if len(df_user) > 0 else None
+        # Prefill from last entry if available
+        df_user = load_csv_dynamic(DATA_FILE)
+        last = df_user.tail(1).iloc[0] if len(df_user) > 0 else None
 
-    # Prefill with baseline mean values if available
-    baselines = build_baselines()
-    baseline_row = baselines[baselines["Crop"] == crop].iloc[0] if crop in baselines["Crop"].values else None
+        # Prefill with baseline mean values if available
+        baselines = build_baselines()
+        baseline_row = baselines[baselines["Crop"] == crop].iloc[0] if crop in baselines["Crop"].values else None
 
-    with st.form("fert_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            moisture = st.number_input("Soil moisture (%)", min_value=0.0, max_value=100.0, step=1.0,
-                                       value=float(baseline_row["Soil Moisture_mean"]) if baseline_row is not None and "Soil Moisture_mean" in baseline_row else (50.0 if last is None else float(last.get("Soil Moisture", 50.0))),
-                                       help="Enter the percentage of water present in the soil. Typical range: 30–70%.")
-            temp = st.number_input("Temperature (°C)", step=0.5,
-                                   value=float(baseline_row["Temperature_mean"]) if baseline_row is not None and "Temperature_mean" in baseline_row else (25.0 if last is None else float(last.get("Temperature", 25.0))),
-                                   help="Enter the average air temperature around the crop in degrees Celsius.")
-        with col2:
-            humidity = st.number_input("Humidity (%)", min_value=0.0, max_value=100.0, step=1.0,
-                                       value=float(baseline_row["Humidity_mean"]) if baseline_row is not None and "Humidity_mean" in baseline_row else (60.0 if last is None else float(last.get("Humidity", 60.0))),
-                                       help="Enter the relative humidity of the environment in percentage.")
-            N = st.number_input("Nitrogen (mg/kg)", step=1.0,
-                                value=float(baseline_row["Nitrogen_mean"]) if baseline_row is not None and "Nitrogen_mean" in baseline_row else (50.0 if last is None else float(last.get("Nitrogen", 50.0))),
-                                help="Enter the nitrogen content in soil (mg per kg of soil). Essential for leaf growth.")
-            P = st.number_input("Phosphorus (mg/kg)", step=1.0,
-                                value=float(baseline_row["Phosphorus_mean"]) if baseline_row is not None and "Phosphorus_mean" in baseline_row else (50.0 if last is None else float(last.get("Phosphorus", 50.0))),
-                                help="Enter the phosphorus content in soil (mg per kg). Important for root and flower development.")
-            K = st.number_input("Potassium (mg/kg)", step=1.0,
-                                value=float(baseline_row["Potassium_mean"]) if baseline_row is not None and "Potassium_mean" in baseline_row else (50.0 if last is None else float(last.get("Potassium", 50.0))),
-                                help="Enter the potassium content in soil (mg per kg). Helps with disease resistance and fruit quality.")
-        submitted = st.form_submit_button("Recommend fertilizer")
+        with st.form("fert_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                # Note: Soil Moisture mean is not in baselines, hence the extra check for last row/default.
+                moisture_default = 50.0 if last is None else float(last.get("Soil Moisture", 50.0))
+                if baseline_row is not None and "Soil Moisture_mean" in baseline_row:
+                     moisture_default = float(baseline_row["Soil Moisture_mean"])
 
-    if submitted:
-        # Build input row dynamically
-        x_input = pd.DataFrame([{
-            "Temperature": temp,
-            "Humidity": humidity,
-            "Soil Moisture": moisture,
-            "Soil Type": soil,
-            "Crop Type": crop,
-            "Nitrogen": N,
-            "Phosphorus": P,
-            "Potassium": K
-        }])
+                moisture = st.number_input("Soil moisture (%)", min_value=0.0, max_value=100.0, step=1.0,
+                                            value=moisture_default,
+                                            help="Enter the percentage of water present in the soil. Typical range: 30–70%.")
+                
+                temp_default = 25.0 if last is None else float(last.get("Temperature", 25.0))
+                if baseline_row is not None and "Temperature_mean" in baseline_row:
+                    temp_default = float(baseline_row["Temperature_mean"])
 
-        # Predict top-3 fertilizers
-        proba = model.predict_proba(x_input)[0]
-        classes = model.named_steps["clf"].classes_
-        top_idx = np.argsort(proba)[::-1][:3]
-        top = [(classes[i], proba[i]) for i in top_idx]
+                temp = st.number_input("Temperature (°C)", step=0.5,
+                                        value=temp_default,
+                                        help="Enter the average air temperature around the crop in degrees Celsius.")
+            with col2:
+                humidity_default = 60.0 if last is None else float(last.get("Humidity", 60.0))
+                if baseline_row is not None and "Humidity_mean" in baseline_row:
+                    humidity_default = float(baseline_row["Humidity_mean"])
 
-        st.subheader("🎯 Recommendation")
-        best_name, best_score = top[0]
-        st.success(f"Recommended fertilizer: {best_name}  •  Confidence: {best_score:.2f}")
+                humidity = st.number_input("Humidity (%)", min_value=0.0, max_value=100.0, step=1.0,
+                                            value=humidity_default,
+                                            help="Enter the relative humidity of the environment in percentage.")
+                
+                n_default = 50.0 if last is None else float(last.get("Nitrogen", 50.0))
+                if baseline_row is not None and "Nitrogen_mean" in baseline_row:
+                    n_default = float(baseline_row["Nitrogen_mean"])
 
-        # Explain NPK if pattern like 10-26-26
-        import re
-        if re.match(r"^\d{1,2}-\d{1,2}-\d{1,2}$", str(best_name)):
-            n, p, k = map(int, best_name.split("-"))
-            st.caption(f"Ideal NPK breakdown: {n}% Nitrogen • {p}% Phosphorus • {k}% Potassium")
+                N = st.number_input("Nitrogen (mg/kg)", step=1.0,
+                                        value=n_default,
+                                        help="Enter the nitrogen content in soil (mg per kg of soil). Essential for leaf growth.")
+                
+                p_default = 50.0 if last is None else float(last.get("Phosphorus", 50.0))
+                if baseline_row is not None and "Phosphorus_mean" in baseline_row:
+                    p_default = float(baseline_row["Phosphorus_mean"])
 
-        with st.expander("Top alternatives"):
-            for name, score in top[1:]:
-                st.write(f"- {name}  •  Confidence: {score:.2f}")
+                P = st.number_input("Phosphorus (mg/kg)", step=1.0,
+                                        value=p_default,
+                                        help="Enter the phosphorus content in soil (mg per kg). Important for root and flower development.")
+                
+                k_default = 50.0 if last is None else float(last.get("Potassium", 50.0))
+                if baseline_row is not None and "Potassium_mean" in baseline_row:
+                    k_default = float(baseline_row["Potassium_mean"])
 
-        # Show similar records from dataset
-        if "Crop Type" in fert_df.columns and "Soil Type" in fert_df.columns:
-            subset = fert_df[
-                (fert_df["Crop Type"] == crop) &
-                (fert_df["Soil Type"] == soil)
-            ][["Temperature","Humidity","Soil Moisture","Nitrogen","Phosphorus","Potassium","Fertilizer Name"]].head(10)
+                K = st.number_input("Potassium (mg/kg)", step=1.0,
+                                        value=k_default,
+                                        help="Enter the potassium content in soil (mg per kg). Helps with disease resistance and fruit quality.")
+            submitted = st.form_submit_button("Recommend fertilizer")
 
-            if len(subset) > 0:
-                st.subheader("📄 Similar records")
-                st.dataframe(subset, use_container_width=True)
-            else:
+        if submitted:
+            # Build input row dynamically
+            x_input = pd.DataFrame([{
+                "Temperature": temp,
+                "Humidity": humidity,
+                "Soil Moisture": moisture,
+                "Soil Type": soil,
+                "Crop Type": crop,
+                "Nitrogen": N,
+                "Phosphorus": P,
+                "Potassium": K
+            }])
 
-                st.info("No similar records found for this crop + soil type combination.")
+            # Predict top-3 fertilizers
+            proba = model.predict_proba(x_input)[0]
+            classes = model.named_steps["clf"].classes_
+            top_idx = np.argsort(proba)[::-1][:3]
+            top = [(classes[i], proba[i]) for i in top_idx]
+
+            st.subheader("🎯 Recommendation")
+            best_name, best_score = top[0]
+            st.success(f"Recommended fertilizer: {best_name}  •  Confidence: {best_score:.2f}")
+
+            # Explain NPK if pattern like 10-26-26
+            import re
+            if re.match(r"^\d{1,2}-\d{1,2}-\d{1,2}$", str(best_name)):
+                n, p, k = map(int, best_name.split("-"))
+                st.caption(f"Ideal NPK breakdown: {n}% Nitrogen • {p}% Phosphorus • {k}% Potassium")
+
+            with st.expander("Top alternatives"):
+                for name, score in top[1:]:
+                    st.write(f"- {name}  •  Confidence: {score:.2f}")
+
+            # Show similar records from dataset
+            if "Crop Type" in fert_df.columns and "Soil Type" in fert_df.columns:
+                subset = fert_df[
+                    (fert_df["Crop Type"] == crop) &
+                    (fert_df["Soil Type"] == soil)
+                ][["Temperature","Humidity","Soil Moisture","Nitrogen","Phosphorus","Potassium","Fertilizer Name"]].head(10)
+
+                if len(subset) > 0:
+                    st.subheader("📄 Similar records")
+                    st.dataframe(subset, use_container_width=True)
+                else:
+                    st.info("No similar records found for this crop + soil type combination.")
+    
+    except Exception as e:
+        # This block catches the critical error during model building
+        st.error("🚨 **CRITICAL MODEL TRAINING ERROR**")
+        st.warning("The model failed to build, likely due to a column name mismatch, corrupted data, or incompatible values in your `Fertilizer Prediction.csv`.")
+        st.code(f"Actual Error: {e}")
+        st.markdown("Please re-check column names and data types in your **`Fertilizer Prediction.csv`** file.")
