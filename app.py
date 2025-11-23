@@ -586,32 +586,56 @@ elif page == "Fertilizer Advisor":
     st.title("🌱 Fertilizer Advisor")
     st.markdown("Input your soil and environment conditions to get a fertilizer recommendation.")
 
-    # --- 1. CALL THE MODEL BUILDER (Now accepts 4 return values) ---
+    # --- 1. CALL THE MODEL BUILDER ---
+    # Model pipe, accuracy, trained features, and classes are returned from the function in Part 1
     model_pipe, accuracy, trained_features, fertilizer_classes = build_fertilizer_model()
 
     # Get unique categorical options for Streamlit selectboxes
     df_fert = load_fert_dataset()
     
-    if model_pipe is None or df_fert.empty:
+    if df_fert.empty or model_pipe is None:
         st.error("🚨 CRITICAL ERROR: Fertilizer data is missing or corrupted. Model cannot run.")
-        # If model_pipe is None, the rest of the page will likely not run anyway, 
-        # but this check is good practice.
+        return # Stop execution if data is missing
     
     soil_types = sorted(df_fert['Soil Type'].unique().tolist())
     crop_types = sorted(df_fert['Crop Type'].unique().tolist())
+
+    # --- 2. SELECTION WIDGETS (Moved outside the form for dynamic filtering) ---
+    st.subheader("Select Crop and Soil Type")
+    colA, colB = st.columns(2)
     
-    # --- ADDED: DATA PREVIEW (Fix for missing preview) ---
-    with st.expander("📊 View Training Data Preview"):
-        st.write(f"First 5 rows of the data used for model training (Total records: {len(df_fert)}):")
-        # Display relevant columns
-        df_display = df_fert[['Temperature', 'Humidity', 'Soil Moisture', 'Soil Type', 'Crop Type', 'Fertilizer Name']].head()
-        st.dataframe(df_display, use_container_width=True)
-        st.info(f"Model trained with accuracy: **{accuracy:.2f}**.")
+    with colA:
+        # These values are now constantly available for filtering the preview
+        soil_type_selected = st.selectbox("Soil Type", options=soil_types, key="preview_soil")
+    with colB:
+        crop_type_selected = st.selectbox("Crop Type", options=crop_types, key="preview_crop")
+
+    # --- 3. DYNAMIC DATA PREVIEW (The fix for your requirement) ---
+    with st.expander(f"📊 View Data for **{crop_type_selected}** on **{soil_type_selected}**"):
+        
+        # Filter the full DataFrame based on the user's current selections
+        df_filtered = df_fert[
+            (df_fert['Soil Type'] == soil_type_selected) & 
+            (df_fert['Crop Type'] == crop_type_selected)
+        ]
+        
+        if not df_filtered.empty:
+            # Display only the relevant columns and the filtered data
+            st.write(f"Showing **{len(df_filtered)}** records matching your criteria:")
+            df_display = df_filtered[['Nitrogen', 'Phosphorus', 'Potassium', 'Temperature', 'Humidity', 'Soil Moisture', 'Fertilizer Name']]
+            st.dataframe(df_display, use_container_width=True)
+        else:
+            st.warning("No specific training records found for this Soil Type and Crop Type combination.")
+
+        st.info(f"Model trained with overall accuracy: **{accuracy:.2f}**.")
+
+    st.markdown("---")
 
 
-    # --- 2. USER INPUT FORM ---
+    # --- 4. NUMERIC INPUT FORM (The NPK/Weather inputs remain in the form) ---
     with st.form("fert_advisor_form"):
-        col1, col2, col3 = st.columns(3)
+        st.subheader("Enter Current Conditions")
+        col1, col2 = st.columns(2)
         
         with col1:
             n = st.number_input("Nitrogen (N)", min_value=0.0, value=30.0)
@@ -623,21 +647,18 @@ elif page == "Fertilizer Advisor":
             hum = st.number_input("Humidity (%)", min_value=0.0, max_value=100.0, value=65.0)
             moisture = st.number_input("Soil Moisture (%)", min_value=0.0, max_value=100.0, value=50.0)
         
-        with col3:
-            soil_type = st.selectbox("Soil Type", options=soil_types)
-            crop_type = st.selectbox("Crop Type", options=crop_types)
-        
         submitted = st.form_submit_button("Get Recommendation")
 
-        if submitted and model_pipe:
-            # 3. GATHER USER INPUTS INTO A DICT
+        if submitted:
+            # 5. GATHER USER INPUTS INTO A DICT (Using the values from the top selectboxes)
             user_input = {
                 "Temperature": temp, "Humidity": hum, "Soil Moisture": moisture,
-                "Soil Type": soil_type, "Crop Type": crop_type, "Nitrogen": n,
-                "Potassium": k, "Phosphorus": p
+                "Soil Type": soil_type_selected, # Use the value from the top selectbox
+                "Crop Type": crop_type_selected, # Use the value from the top selectbox
+                "Nitrogen": n, "Potassium": k, "Phosphorus": p
             }
 
-            # 4. CALL THE NEW PREDICTION FUNCTION (Now returns top 3 list)
+            # 6. CALL THE PREDICTION FUNCTION
             top_suggestions = predict_fertilizer(model_pipe, user_input, trained_features, fertilizer_classes, top_n=3)
             
             st.success(f"✅ Top Recommendation: **{top_suggestions[0][0]}**")
@@ -645,7 +666,6 @@ elif page == "Fertilizer Advisor":
             st.subheader("Top 3 Fertilizer Suggestions")
             st.markdown("---")
             
-            # Display all 3 suggestions (Fix for top 3)
             for i, (name, prob) in enumerate(top_suggestions):
                 if i == 0:
                     st.write(f"🥇 **{name}** (Confidence: {prob:.2%})")
@@ -653,6 +673,4 @@ elif page == "Fertilizer Advisor":
                     st.write(f"🥈 {name} (Confidence: {prob:.2%})")
                 elif i == 2:
                     st.write(f"🥉 {name} (Confidence: {prob:.2%})")
-            
-        elif submitted and model_pipe is None:
-             st.warning("Cannot provide a recommendation as the model failed to load due to data issues.")
+
