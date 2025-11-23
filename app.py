@@ -72,6 +72,42 @@ def load_fert_dataset():
         return pd.DataFrame()
 
     return df.dropna(subset=["Fertilizer Name"]).drop_duplicates()
+    # ---------------- Custom Utility Functions ----------------
+def crop_selector(label, df_user_records, df_baseline_data):
+    """
+    A custom widget for selecting a crop from existing records, baseline data,
+    or allowing the user to input a new crop.
+    """
+    # 1. Get all unique crops from user's journal
+    existing_crops = df_user_records["Crop"].unique().tolist() if "Crop" in df_user_records.columns and not df_user_records.empty else []
+    
+    # Check if the baseline file contains "Crop Name" or just "Crop"
+    baseline_col = "Crop Name" if "Crop Name" in df_baseline_data.columns else "Crop"
+
+    # 2. Get crops from the baseline file (Crop_Recommendation.csv)
+    baseline_crops = df_baseline_data[baseline_col].unique().tolist() if baseline_col in df_baseline_data.columns and not df_baseline_data.empty else []
+
+    # 3. Combine, sort, and add the "Add New" option
+    all_crops = sorted(list(set(existing_crops + baseline_crops)))
+    options = ["<Add New Crop>"] + all_crops
+    
+    # 4. Use Streamlit selectbox
+    selected_option = st.selectbox(label, options=options)
+
+    selected_crop = selected_option
+    
+    # 5. Handle the Add New case with a text input
+    if selected_option == "<Add New Crop>":
+        new_crop = st.text_input("Enter the new crop name:")
+        if new_crop:
+            selected_crop = new_crop
+        elif all_crops:
+            # Fallback to the first crop if user selected <Add New> but entered nothing
+            selected_crop = all_crops[0]
+        else:
+            selected_crop = "" # Return empty string if no crops exist
+
+    return selected_crop
 
 # ---------------- Fertilizer ML ----------------
 @st.cache_resource 
@@ -649,5 +685,6 @@ elif page == "Fertilizer Advisor":
         st.warning("The model failed to build, likely due to a column name mismatch, corrupted data, or incompatible values in your `Fertilizer Prediction.csv`.")
         st.code(f"Actual Error: {e}")
         st.markdown("Please re-check column names and data types in your **`Fertilizer Prediction.csv`** file.")
+
 
 
