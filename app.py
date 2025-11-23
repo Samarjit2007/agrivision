@@ -76,59 +76,55 @@ def load_fert_dataset():
 # ---------------- Fertilizer ML ----------------
 @st.cache_resource 
 def build_fertilizer_model():
-    df = load_fert_dataset()
+    # 1. Load Data
+    df = load_fert_dataset() # Assuming this function handles loading the CSV
+    
+    # Check for empty dataframe just in case
+    if df.empty:
+        return None, 0.0
 
-    # --- 🚨 DEBUG LINE INSERTED HERE 🚨 ---
-    # This line displays the actual column names loaded from the CSV.
-    # If the app loads, check this warning box for the column names!
-    st.warning(f"DEBUG: Loaded Columns: {df.columns.tolist()}")
-    # --- 🚨 END DEBUG LINE 🚨 ---
-
-    # 1. DATA PREPROCESSING AND SELECTION (Update the column list here!)
-    # Ensure this list EXACTLY matches the CORRECTED header from Step 1
+    # 2. DATA PREPROCESSING AND SELECTION
+    # Ensure this list EXACTLY matches the CORRECTED header
     features = ['Temperature', 'Humidity', 'Soil Moisture', 'Soil Type', 
                 'Crop Type', 'Nitrogen', 'Potassium', 'Phosphorus']
     
-    X = df[features]
-    y = df['Fertilizer Name']
+    # Remove rows with any missing values that might cause errors
+    df_cleaned = df[features + ['Fertilizer Name']].dropna()
     
-    # 2. ENCODING CATEGORICAL FEATURES
-    X = pd.get_dummies(X, columns=['Soil Type', 'Crop Type'], drop_first=True)
+    X = df_cleaned[features]
+    y = df_cleaned['Fertilizer Name']
     
-    # 3. TRAINING THE MODEL
-    # Ensure all remaining columns are numeric before scaling/training
-    
-    # ... rest of your model pipeline (Scaler, Classifier, etc.) ...
-    
-    # TEMPORARY PLACEHOLDER FOR CLASSIFIER (REPLACE WITH YOUR ACTUAL CODE)
-    from sklearn.model_selection import train_test_split
-    from sklearn.ensemble import RandomForestClassifier
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    model = RandomForestClassifier(random_state=42)
-    model.fit(X_train, y_train)
-    accuracy = model.score(X_test, y_test)
-    
-    # Return the trained model and its accuracy
-    return model, accuracy
+    # 3. SEPARATE NUMERIC AND CATEGORICAL COLUMNS
+    # Numeric features need scaling, Categorical features need One-Hot Encoding
+    numeric_features = ['Temperature', 'Humidity', 'Soil Moisture', 
+                        'Nitrogen', 'Potassium', 'Phosphorus']
+    categorical_features = ['Soil Type', 'Crop Type']
 
-# ---------------- Crop Selector Helper ----------------
-def crop_selector(label, user_df, baseline_df):
-    crops = set()
-    if "Crop" in user_df.columns:
-        crops.update(user_df["Crop"].dropna().unique().tolist())
-    if "Crop" in baseline_df.columns:
-        crops.update(baseline_df["Crop"].dropna().unique().tolist())
+    # 4. ONE-HOT ENCODING (converts text columns to numbers)
+    X_encoded = pd.get_dummies(X, columns=categorical_features, drop_first=False)
+    
+    # Update the feature list to include the new encoded columns
+    final_features = [col for col in X_encoded.columns]
 
-    crops = sorted(list(crops))
-    options = crops + ["<Add new>"]
-
-    crop = st.selectbox(label, options)
-    if crop == "<Add new>":
-        crop = st.text_input("Enter new crop name")
-    return crop
-
+    # 5. SPLIT DATA
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_encoded, y, test_size=0.2, random_state=42
+    )
+    
+    # 6. CREATE PIPELINE (Scales numeric data and then trains the model)
+    pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', RandomForestClassifier(n_estimators=100, random_state=42))
+    ])
+    
+    # 7. TRAIN MODEL
+    pipeline.fit(X_train, y_train)
+    
+    # 8. EVALUATE
+    accuracy = pipeline.score(X_test, y_test)
+    
+    # Return the trained pipeline object and its accuracy
+    return pipeline, accuracy
 # ---------------- Navigation ----------------
 page = st.sidebar.radio("Go to", [
     "Dashboard","Data entry","Assess","Journal","Settings","Fertilizer Advisor"
@@ -653,4 +649,5 @@ elif page == "Fertilizer Advisor":
         st.warning("The model failed to build, likely due to a column name mismatch, corrupted data, or incompatible values in your `Fertilizer Prediction.csv`.")
         st.code(f"Actual Error: {e}")
         st.markdown("Please re-check column names and data types in your **`Fertilizer Prediction.csv`** file.")
+
 
