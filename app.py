@@ -603,4 +603,5 @@ elif page == "Fertilizer Advisor":
                 st.subheader("📄 Similar records")
                 st.dataframe(subset, use_container_width=True)
             else:
+
                 st.info("No similar records found for this crop + soil type combination.")
