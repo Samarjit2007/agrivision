@@ -113,18 +113,16 @@ def crop_selector(label, df_user_records, df_baseline_data):
 @st.cache_resource 
 def build_fertilizer_model():
     # 1. Load Data
-    df = load_fert_dataset() # Assuming this function handles loading the CSV
+    df = load_fert_dataset() # Assumes load_fert_dataset() is defined and works
     
-    # Check for empty dataframe just in case
     if df.empty:
-        return None, 0.0, [] # Return empty list for features
+        # Now returns 4 values, including empty list for classes
+        return None, 0.0, [], [] 
 
     # 2. DATA PREPROCESSING AND SELECTION
-    # Features required for the model
     features = ['Temperature', 'Humidity', 'Soil Moisture', 'Soil Type', 
                 'Crop Type', 'Nitrogen', 'Potassium', 'Phosphorus']
     
-    # Remove rows with any missing values that might cause errors
     df_cleaned = df[features + ['Fertilizer Name']].dropna()
     
     X = df_cleaned[features]
@@ -134,10 +132,9 @@ def build_fertilizer_model():
     categorical_features = ['Soil Type', 'Crop Type']
 
     # 4. ONE-HOT ENCODING (converts text columns to numbers)
-    # This creates the feature columns the model is trained on (e.g., Crop Type_Barley)
     X_encoded = pd.get_dummies(X, columns=categorical_features, drop_first=False)
     
-    # Store the final feature names for use during prediction
+    # Store the final feature names for use during prediction (CRUCIAL FIX)
     trained_features = X_encoded.columns.tolist()
 
     # 5. SPLIT DATA
@@ -145,7 +142,7 @@ def build_fertilizer_model():
         X_encoded, y, test_size=0.2, random_state=42
     )
     
-    # 6. CREATE PIPELINE (Scales numeric data and then trains the model)
+    # 6. CREATE PIPELINE
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('clf', RandomForestClassifier(n_estimators=100, random_state=42))
@@ -157,39 +154,47 @@ def build_fertilizer_model():
     # 8. EVALUATE
     accuracy = pipeline.score(X_test, y_test)
     
-    # Return the trained pipeline object, its accuracy, AND the feature names list
-    return pipeline, accuracy, trained_features
+    # Get the list of all unique class labels (fertilizer names)
+    fertilizer_classes = pipeline['clf'].classes_.tolist()
+    
+    # Return 4 values: pipeline, accuracy, feature names, AND classes
+    return pipeline, accuracy, trained_features, fertilizer_classes
 
 
-# ---------------- Prediction Logic ----------------
-def predict_fertilizer(model, input_data, trained_features):
+# ---------------- Prediction Logic (FIXES THE COLUMN ALIGNMENT ERROR AND PROVIDES TOP 3) ----------------
+def predict_fertilizer(model, input_data, trained_features, classes, top_n=3):
     """
-    Preprocesses user input to match the training data format and predicts
-    the fertilizer. This function explicitly handles column alignment.
+    Predicts fertilizer using probability and returns the top N suggestions.
     """
-    # 1. Convert input data (dict/series) into a DataFrame (ensures one row)
+    # 1. Convert input data into a DataFrame
     input_df = pd.DataFrame([input_data])
     
     # 2. ONE-HOT ENCODE the input data for 'Soil Type' and 'Crop Type'
     categorical_features = ['Soil Type', 'Crop Type']
     input_encoded = pd.get_dummies(input_df, columns=categorical_features, drop_first=False)
 
-    # 3. ALIGN COLUMNS: This is the critical fix for the NameError!
-    
-    # Find columns seen during training but missing in the current input (because only one crop/soil type is present)
+    # 3. ALIGN COLUMNS: The critical fix for feature mismatch
     missing_cols = list(set(trained_features) - set(input_encoded.columns))
     
-    # Add all missing encoded columns (e.g., Crop Type_Rice) and fill their values with 0
     for col in missing_cols:
         input_encoded[col] = 0
         
     # 4. Final step: Ensure the order of columns matches the training order exactly
     input_final = input_encoded[trained_features] 
     
-    # Predict using the trained model pipeline
-    prediction = model.predict(input_final)
+    # Use predict_proba to get probabilities for all classes (the fix for top 3!)
+    probabilities = model.predict_proba(input_final)[0]
     
-    return prediction[0]
+    # Combine classes and probabilities into a series
+    result_series = pd.Series(probabilities, index=classes)
+    
+    # Sort and get the top N results
+    top_suggestions = result_series.nlargest(top_n)
+    
+    # Format the results into a list of tuples: [(name, probability), ...]
+    top_list = [(name, prob) for name, prob in top_suggestions.items()]
+    
+    return top_list
 # ---------------- Navigation ----------------
 page = st.sidebar.radio("Go to", [
     "Dashboard","Data entry","Assess","Journal","Settings","Fertilizer Advisor"
@@ -576,21 +581,32 @@ elif page == "Settings":
 
     st.subheader("Crop baselines (min / mean / max)")
     st.dataframe(baselines, use_container_width=True)
+# ---------------- fertilizer adviser ----------------
 elif page == "Fertilizer Advisor":
     st.title("🌱 Fertilizer Advisor")
     st.markdown("Input your soil and environment conditions to get a fertilizer recommendation.")
 
-    # --- 1. CALL THE MODEL BUILDER ---
-    model_pipe, accuracy, trained_features = build_fertilizer_model()
+    # --- 1. CALL THE MODEL BUILDER (Now accepts 4 return values) ---
+    model_pipe, accuracy, trained_features, fertilizer_classes = build_fertilizer_model()
 
-    if model_pipe is None:
-        st.error("🚨 CRITICAL MODEL ERROR: Cannot load Fertilizer Prediction dataset or it is empty.")
-        # return # Uncomment this if you want the app to stop drawing the page on error
-        
     # Get unique categorical options for Streamlit selectboxes
     df_fert = load_fert_dataset()
+    
+    if model_pipe is None or df_fert.empty:
+        st.error("🚨 CRITICAL ERROR: Fertilizer data is missing or corrupted. Model cannot run.")
+        # If model_pipe is None, the rest of the page will likely not run anyway, 
+        # but this check is good practice.
+    
     soil_types = sorted(df_fert['Soil Type'].unique().tolist())
     crop_types = sorted(df_fert['Crop Type'].unique().tolist())
+    
+    # --- ADDED: DATA PREVIEW (Fix for missing preview) ---
+    with st.expander("📊 View Training Data Preview"):
+        st.write(f"First 5 rows of the data used for model training (Total records: {len(df_fert)}):")
+        # Display relevant columns
+        df_display = df_fert[['Temperature', 'Humidity', 'Soil Moisture', 'Soil Type', 'Crop Type', 'Fertilizer Name']].head()
+        st.dataframe(df_display, use_container_width=True)
+        st.info(f"Model trained with accuracy: **{accuracy:.2f}**.")
 
 
     # --- 2. USER INPUT FORM ---
@@ -613,25 +629,30 @@ elif page == "Fertilizer Advisor":
         
         submitted = st.form_submit_button("Get Recommendation")
 
-        if submitted:
+        if submitted and model_pipe:
             # 3. GATHER USER INPUTS INTO A DICT
             user_input = {
-                "Temperature": temp,
-                "Humidity": hum,
-                "Soil Moisture": moisture,
-                "Soil Type": soil_type,
-                "Crop Type": crop_type,
-                "Nitrogen": n,
-                "Potassium": k,
-                "Phosphorus": p
+                "Temperature": temp, "Humidity": hum, "Soil Moisture": moisture,
+                "Soil Type": soil_type, "Crop Type": crop_type, "Nitrogen": n,
+                "Potassium": k, "Phosphorus": p
             }
 
-            # 4. CALL THE NEW PREDICTION FUNCTION
-            if model_pipe:
-                predicted_fertilizer = predict_fertilizer(model_pipe, user_input, trained_features)
-                
-                st.success(f"✅ Recommended Fertilizer: **{predicted_fertilizer}**")
-                st.info(f"Model trained with accuracy: **{accuracy:.2f}**")
-            else:
-                 st.warning("Cannot provide a recommendation as the model failed to load.")
-
+            # 4. CALL THE NEW PREDICTION FUNCTION (Now returns top 3 list)
+            top_suggestions = predict_fertilizer(model_pipe, user_input, trained_features, fertilizer_classes, top_n=3)
+            
+            st.success(f"✅ Top Recommendation: **{top_suggestions[0][0]}**")
+            
+            st.subheader("Top 3 Fertilizer Suggestions")
+            st.markdown("---")
+            
+            # Display all 3 suggestions (Fix for top 3)
+            for i, (name, prob) in enumerate(top_suggestions):
+                if i == 0:
+                    st.write(f"🥇 **{name}** (Confidence: {prob:.2%})")
+                elif i == 1:
+                    st.write(f"🥈 {name} (Confidence: {prob:.2%})")
+                elif i == 2:
+                    st.write(f"🥉 {name} (Confidence: {prob:.2%})")
+            
+        elif submitted and model_pipe is None:
+             st.warning("Cannot provide a recommendation as the model failed to load due to data issues.")
